@@ -1,43 +1,72 @@
-from fastapi import FastAPI
-from pydantic import BaseModel, Field, EmailStr, ConfigDict
+from typing import Annotated
 
+from fastapi import FastAPI, Depends
+from pydantic import BaseModel
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 app = FastAPI()
 
-data = {
-    "email": "abc@mail.ru",
-    "bio": "fastapi",
-    "age": 15,
-}
 
-data_wo_age = {
-    "email": "abc@mail.ru",
-    "bio": "Я пирожок",
-    # "gender": "male",
-    # "birthday": "2022"
-}
-
-class UserSchema(BaseModel):
-    email: EmailStr
-    bio: str | None = Field(max_length=10)
-
-    model_config = ConfigDict(extra="forbid")
+engine = create_async_engine("sqlite+aiosqlite:///books.db")
 
 
-class UserAgeSchema(UserSchema):
-    age: int = Field(ge=0, le=130)
+new_session = async_sessionmaker(engine, expire_on_commit=False)
 
-users = []
+async def get_session():
+    async with new_session() as session:
+        yield session
 
-@app.post("/users")
-def add_users(user: UserAgeSchema):
-    users.append(user)
-    return {"ok": True, "msg": "Юзер добавлен"}
+SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 
-@app.get("/users")
-def get_users():
-    return users
 
-# print(repr(UserSchema(**data_wo_age)))
-# print(repr(UserAgeSchema(**data)))
+class Base(DeclarativeBase):
+    pass
+
+
+class BookModel(Base):
+    __tablename__ = "books"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str]
+    author: Mapped[str]
+
+
+
+@app.post("/setup_database")
+async def setup_database():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(Base.metadata.create_all)
+    return {"ok": True}
+
+
+
+class BookAddSchema(BaseModel):
+    title: str
+    author: str
+
+
+class BookSchema(BaseModel):
+    id: int
+
+
+@app.post("/books")
+async def add_book(data: BookAddSchema, session: SessionDep):
+    new_book = BookModel(
+        title=data.title,
+        author=data.author
+    )
+    session.add(new_book)
+    await session.commit()
+    return {"ok": True}
+
+
+@app.get("/books")
+async def get_books(session: SessionDep):
+    query = select(BookModel)
+    result = await session.execute(query)
+    return result.scalars().all()
