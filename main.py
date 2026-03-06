@@ -1,57 +1,43 @@
-from fastapi import FastAPI,HTTPException
-import uvicorn
-from pydantic import BaseModel
+from fastapi import FastAPI
+from pydantic import BaseModel, Field, EmailStr, ConfigDict
 
 
 app = FastAPI()
 
-books = [
-    {
-        "id": 1,
-        "title": "Асихронность в python",
-        "author": "Меттью",
-    },
-    {
-        "id": 2,
-        "title": "Backend разработка в Python",
-        "author": "Артём",
-    },
-]
+data = {
+    "email": "abc@mail.ru",
+    "bio": "fastapi",
+    "age": 15,
+}
+
+data_wo_age = {
+    "email": "abc@mail.ru",
+    "bio": "Я пирожок",
+    # "gender": "male",
+    # "birthday": "2022"
+}
+
+class UserSchema(BaseModel):
+    email: EmailStr
+    bio: str | None = Field(max_length=10)
+
+    model_config = ConfigDict(extra="forbid")
 
 
-@app.get(
-    "/books",
-    tags=["Книги"],
-    summary="Получить все книги")
-def read_books():
-    return books
+class UserAgeSchema(UserSchema):
+    age: int = Field(ge=0, le=130)
+
+users = []
+
+@app.post("/users")
+def add_users(user: UserAgeSchema):
+    users.append(user)
+    return {"ok": True, "msg": "Юзер добавлен"}
 
 
-@app.get(
-    "/books/{id}",
-    tags=["Книги"],
-    summary="Получить конкретную книжку")
-def get_book(id: int):
-    for book in books:
-        if book["id"] == id:
-            return book
-    raise HTTPException(status_code=404, detail="Книга не найдена")
+@app.get("/users")
+def get_users():
+    return users
 
-
-class NewBook(BaseModel):
-    title: str
-    author: str
-
-
-@app.post("/books")
-def create_book(new_book: NewBook):
-    books.append({
-        "id": len(books) + 1,
-        "title": new_book.title,
-        "author": new_book.author,
-    })
-    return {"success": True, "message": "Книга успешно добавлена"}
-
-
-if __name__ == "__main__":
-    uvicorn.run("main:app", reload=True)
+# print(repr(UserSchema(**data_wo_age)))
+# print(repr(UserAgeSchema(**data)))
